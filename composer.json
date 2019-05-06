@@ -1,0 +1,23 @@
+{
+    "name": "walterdis/yii2-carbon-behavior",
+    "type": "library",
+    "authors": [
+        {
+            "name": "Walter Discher Cechinel",
+            "email": "mistrim@gmail.com"
+        }
+    ],
+    "require": {
+        "nesbot/carbon": "^2.17"
+    },
+    "autoload": {
+        "psr-4": {
+            "Walterdis\\Yii2\\Behavior\\CarbonBehavior\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Walterdis\\Yii2\\Behavior\\CarbonBehavior\\Test\\": "test/"
+        }
+    }
+}
