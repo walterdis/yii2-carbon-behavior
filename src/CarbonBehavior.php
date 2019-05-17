@@ -42,14 +42,6 @@ class CarbonBehavior extends \yii\base\Behavior
     public $importSchemaAttributes = true;
 
     /**
-     * Default datetime pattern
-     * Ex: Mysql datetime format
-     *
-     * @var string date format for carbon
-     */
-    public $globalDateTimeFormat = 'Y-m-d H:i:s';
-
-    /**
      *
      * @var array
      */
@@ -95,7 +87,9 @@ class CarbonBehavior extends \yii\base\Behavior
     public $mutateDate = [];
 
     /**
-     * @var array list of custom attributes to be converted
+     * array list of custom attributes to be converted
+     * attribute => type (date, datetime...)
+     * @var
      */
     public $attributes = [
     ];
@@ -105,6 +99,27 @@ class CarbonBehavior extends \yii\base\Behavior
      * @var array
      */
     public $dateTypes = ['date', 'datetime', 'time', 'timestamp'];
+
+    /**
+     * List of attributes to receive the current datetime on
+     * beforeInsert event
+     *
+     * @var array
+     */
+    public $createdAtAttributes = [
+        'created_at',
+    ];
+
+    /**
+     * List of attributes to receive the current datetime on
+     * beforeInsert and beforeUpdate event
+     *
+     * @var array
+     */
+    public $updatedAtAttributes = [
+        'updated_at',
+        'update_at'
+    ];
 
     /**
      * @return array
@@ -226,8 +241,13 @@ class CarbonBehavior extends \yii\base\Behavior
     public function convertToDatabase($event)
     {
         $attributes = $this->prepareAttributes($event);
+        $eventName = $event->name;
 
         foreach ($attributes as $attr => $type) {
+            if ($this->touchedCreateUpdate($attr, $eventName)) {
+                continue;
+            }
+
             if (!$value = $this->getValue($attr)) {
                 continue;
             }
@@ -364,6 +384,36 @@ class CarbonBehavior extends \yii\base\Behavior
         }
 
         $date->settings(['toStringFormat' => $format]);
+    }
+
+    /**
+     * @author Walter Discher Cechinel <mistrim@gmail.com>
+     * @param string $attr
+     * @param string $eventName
+     * @return boolean
+     */
+    protected function touchedCreateUpdate($attr, $eventName)
+    {
+        if ($eventName != ActiveRecord::EVENT_BEFORE_INSERT && $eventName != ActiveRecord::EVENT_BEFORE_UPDATE) {
+            return false;
+        }
+        $currentDate = Carbon::now();
+        if ($eventName == ActiveRecord::EVENT_BEFORE_INSERT) {
+            if (in_array($attr, array_merge($this->createdAtAttributes, $this->updatedAtAttributes))) {
+                $this->owner->$attr = $currentDate;
+                return true;
+            }
+        }
+
+        if ($eventName == ActiveRecord::EVENT_BEFORE_UPDATE) {
+            if (in_array($attr, $this->updatedAtAttributes)) {
+                $this->owner->$attr = $currentDate;
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
 }
