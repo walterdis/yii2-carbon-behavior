@@ -3,14 +3,17 @@
 namespace Walterdis\Yii2\Behavior\CarbonBehavior;
 
 use Carbon\Carbon;
-use Walterdis\Yii2\Behavior\CarbonBehavior\Contracts\SearchInterface;
+use yii\base\Event;
 use yii\db\ActiveRecord;
+use yii\db\ColumnSchema;
 
 /**
  * @author Walter Discher Cechinel <mistrim@gmail.com>
  */
 class CarbonBehavior extends \yii\base\Behavior
 {
+
+    const EVENT_TO_OUTPUT_FORMAT = 'toOutputFormat';
 
     /**
      * @var ActiveRecord
@@ -19,66 +22,89 @@ class CarbonBehavior extends \yii\base\Behavior
 
     /**
      *
-     * @var \yii\base\Event
+     * @var Event
      */
     protected $event;
 
     /**
-     * @var array list of attributes to convert to Carbon
+     * Add model validation error if any attribute is invalid.
+     *
+     * @var bool
      */
-    public $attributes = [];
+    public $addValidationErrors = true;
 
     /**
-     * Iterate over table schema and try to convert date type columns
+     * Iterate over table schema and to attributes list
      *
      * @author Walter Discher Cechinel <mistrim@gmail.com>
      * @var bool
      */
-    public $autoConvertDateTypes = true;
+    public $importSchemaAttributes = true;
 
     /**
+     * Default datetime pattern
+     * Ex: Mysql datetime format
+     *
      * @var string date format for carbon
      */
-    public $dateFormat = 'Y-m-d H:i:s';
+    public $globalDateTimeFormat = 'Y-m-d H:i:s';
 
     /**
+     *
      * @var array
      */
-    public $toStringDateFormat = 'd/m/Y H:i:s';
+    public $toStringFormats = [
+        'datetime' => 'd/m/Y H:i:s',
+        'timestamp' => 'd/m/Y H:i:s',
+        'date' => 'd/m/Y',
+    ];
 
     /**
-     * @var array list of formats to try the conversion
+     * Available patterns sent by the user to be converted to object
+     *
+     * @var array
      */
-    public $dateFormatPatterns = [
-        'd/m/Y' => 'date',
-        'd/m/Y H:i:s' => 'datetime',
-        'd/m/Y H:i' => 'datetime',
-        'Y-m-d' => 'date',
-        'Y-m-d H:i:s' => 'datetime',
-        'Y-m-d H:i' => 'datetime',
+    public $inputPatterns = [
+        'd/m/Y',
+        'd/m/Y H:i:s',
+        'd/m/Y H:i',
+        'H:i:s',
+        'H:i',
+    ];
+
+    /**
+     * Formats to convert from user input to database format
+     * Ex: 'd/m/Y' => 'Y-m-d' will convert xx/xx/xxxx to xxxx-xx-xx
+     *
+     * @var array
+     */
+    public $toDatabaseStringFormats = [
+        'date' => 'Y-m-d',
+        'datetime' => 'Y-m-d H:i:s',
+        'time' => 'H:i:s',
+        'timestamp' => 'Y-m-d H:i:s',
+    ];
+
+    /**
+     * @TODO
+     * Force attribute toString to the given format
+     * Ex: ['created_at' => 'date'] will force the attribute to print as date
+     * regardless the original type
+     * @var type
+     */
+    public $mutateDate = [];
+
+    /**
+     * @var array list of custom attributes to be converted
+     */
+    public $attributes = [
     ];
 
     /**
      *
      * @var array
      */
-    const DATABASE_FORMATS = [
-        'date',
-        'datetime',
-        'time',
-        'timestamp',
-    ];
-
-    /**
-     *
-     * @var array
-     */
-    private $columns;
-
-    public function init()
-    {
-        parent::init();
-    }
+    public $dateTypes = ['date', 'datetime', 'time', 'timestamp'];
 
     /**
      * @return array
@@ -86,85 +112,15 @@ class CarbonBehavior extends \yii\base\Behavior
     public function events()
     {
         return [
-            ActiveRecord::EVENT_AFTER_FIND => 'toCarbon',
-            ActiveRecord::EVENT_AFTER_VALIDATE => 'toCarbon',
-            ActiveRecord::EVENT_AFTER_UPDATE => 'toCarbon',
-            ActiveRecord::EVENT_AFTER_INSERT => 'toCarbon',
-            ActiveRecord::EVENT_BEFORE_VALIDATE => 'toCarbon',
-            ActiveRecord::EVENT_BEFORE_INSERT => 'toCarbon',
-            ActiveRecord::EVENT_BEFORE_UPDATE => 'toCarbon',
+            ActiveRecord::EVENT_AFTER_FIND => 'convertFromDatabase',
+            ActiveRecord::EVENT_AFTER_UPDATE => 'convertFromDatabase',
+            ActiveRecord::EVENT_AFTER_INSERT => 'convertFromDatabase',
+            ActiveRecord::EVENT_AFTER_VALIDATE => 'convertTo',
+            ActiveRecord::EVENT_BEFORE_INSERT => 'convertToDatabase',
+            ActiveRecord::EVENT_BEFORE_UPDATE => 'convertToDatabase',
+            ActiveRecord::EVENT_BEFORE_VALIDATE => 'convertToDatabase',
+            static::EVENT_TO_OUTPUT_FORMAT => 'convertFromDatabase',
         ];
-    }
-
-    /**
-     * Convert the model's attributes to an Carbon instance.
-     *
-     * @param $event
-     *
-     * @return static
-     * @throws \yii\base\InvalidConfigException
-     */
-    public function toCarbon($event)
-    {
-        $this->event = $event;
-
-        $attributes = array_flip($this->attributes);
-        if ($this->autoConvertDateTypes) {
-            $attributes = $this->prepareAutoConvertAttributes($this->owner->getTableSchema()->columns);
-        }
-
-        foreach ($attributes as $attribute => $type) {
-            if (!$value = $this->getValue($attribute, $type)) {
-                $this->owner->$attribute = null;
-                continue;
-            }
-
-            try {
-                if (!$date = $this->convert($value, $type)) {
-                    continue;
-                }
-
-                $this->configureStringFormat($date);
-
-                $this->owner->$attribute = $date;
-            } catch (\InvalidArgumentException $e) {
-                continue;
-            } catch (\Exception $e) {
-                continue;
-            }
-        }
-    }
-
-    /**
-     * @author Walter Discher Cechinel <mistrim@gmail.com>
-     *
-     * @param Carbon $date
-     */
-    private function configureStringFormat(Carbon $date)
-    {
-        switch ($this->event->name) {
-            case ActiveRecord::EVENT_AFTER_VALIDATE:
-                if ($this->owner instanceof SearchInterface) {
-                    $date->settings(['toStringFormat' => $this->toStringDateFormat]);
-                }
-                break;
-
-            case ActiveRecord::EVENT_AFTER_FIND:
-                $date->settings(['toStringFormat' => $this->toStringDateFormat]);
-                break;
-
-            case ActiveRecord::EVENT_AFTER_INSERT:
-                $date->settings(['toStringFormat' => $this->toStringDateFormat]);
-                break;
-
-            case ActiveRecord::EVENT_AFTER_UPDATE:
-                $date->settings(['toStringFormat' => $this->toStringDateFormat]);
-                break;
-
-            default:
-                $date->settings(['toStringFormat' => $this->dateFormat]);
-                break;
-        }
     }
 
     /**
@@ -172,9 +128,9 @@ class CarbonBehavior extends \yii\base\Behavior
      *
      * @param string $attribute
      *
-     * @return string|null
+     * @return string
      */
-    private function getValue($attribute, $columnType)
+    protected function getValue($attribute)
     {
         if (!$value = $this->owner->getAttribute($attribute)) {
             $value = $this->owner->$attribute ?? null;
@@ -184,47 +140,168 @@ class CarbonBehavior extends \yii\base\Behavior
             return null;
         }
 
-        if ($this->event->name != ActiveRecord::EVENT_BEFORE_UPDATE) {
+        if ($value instanceof Carbon) {
             return $value;
         }
 
-        $value = trim($value);
-        $valueLen = strlen($value);
-
-        $oldValue = $this->owner->getOldAttribute($attribute);
-        if ($oldValue && (strlen($oldValue) > 16) && $columnType == 'datetime' && $valueLen < 16) {
-            $extract = explode(' ', $oldValue);
-
-            $value = trim($value . ' ' . $extract[1]);
+        if (is_object($value)) {
+            return $value;
         }
 
-        return $value;
+        return trim($value);
     }
 
     /**
-     * Check table schema for date formats and return a list of
-     * date attributes to auto convert to carbon
+     * @author Walter Discher Cechinel <mistrim@gmail.com>
+     *
+     * @param string $attribute
+     * @param string $value
+     *
+     * @return boolean|void
+     */
+    public function setAttribute($attribute, $value)
+    {
+        if (!$this->owner->$attribute) {
+            return false;
+        }
+
+        $this->owner->$attribute = $value;
+    }
+
+    /**
+     * @author Walter Discher Cechinel <mistrim@gmail.com>
+     *
+     * @param Event $event
+     */
+    public function convertTo($event)
+    {
+        if ($event->name == 'afterValidate') {
+            if ($this->owner->hasErrors()) {
+                return $this->convertFromDatabase($event);
+            }
+        }
+
+        return $this->convertToDatabase($event);
+    }
+
+    /**
+     * String to Carbon from secure sources (database, after update...)
      *
      * @author Walter Discher Cechinel <mistrim@gmail.com>
      *
-     * @param array $columns
-     *
-     * @return array
+     * @param Event $event
      */
-    private function prepareAutoConvertAttributes($columns)
+    public function convertFromDatabase($event)
     {
-        $attributes = array_flip($this->attributes);
+        $attributes = $this->prepareAttributes($event);
 
-        foreach ($columns as $column) {
-            if (!in_array($column->type, static::DATABASE_FORMATS)) {
+        foreach ($attributes as $attr => $type) {
+            if (!$value = $this->getValue($attr)) {
                 continue;
             }
 
-            if (isset($attributes[$column->name])) {
-                unset($attributes[$column->name]);
+            if (is_numeric($value)) {
+                $value = Carbon::createFromTimestamp($value);
+            } elseif ($type == 'date') {
+                $value = Carbon::createFromFormat('Y-m-d', $value)->startOfDay();
+            } elseif ($type == 'time') {
+                $value = Carbon::createFromFormat('H:i:s', $value);
+            } else {
+                $value = $this->convertFromPatterns($value, ['Y-m-d H:i', 'Y-m-d H:i:s']);
             }
 
-            $attributes[$column->name] = $column->type;
+            if (!$value instanceof Carbon) {
+                continue;
+            }
+
+            $this->applyToStringFormat($value, $type);
+            $this->setAttribute($attr, $value);
+        }
+    }
+
+    /**
+     *
+     * @param Event $event
+     */
+    public function convertToDatabase($event)
+    {
+        $attributes = $this->prepareAttributes($event);
+
+        foreach ($attributes as $attr => $type) {
+            if (!$value = $this->getValue($attr)) {
+                continue;
+            }
+
+            if ($value instanceof Carbon) {
+                $this->applyToDatabaseFormat($value, $type);
+                continue;
+            }
+
+            $carbon = $this->convertFromPatterns($value, $this->inputPatterns);
+            if (!$carbon instanceof Carbon) {
+                if ($this->addValidationErrors) {
+                    $this->owner->addError($attr, $attr . ' The given date is invalid.');
+                }
+                continue;
+            }
+
+            $this->applyToDatabaseFormat($carbon, $type);
+            $this->setAttribute($attr, $carbon);
+        }
+    }
+
+    /**
+     * @author Walter Discher Cechinel <mistrim@gmail.com>
+     *
+     * @param string $value
+     * @param array $patterns
+     *
+     * @return Carbon|bool
+     */
+    protected function convertFromPatterns($value, $patterns)
+    {
+        foreach ($patterns as $pattern) {
+            if ($date = $this->convertFromFormat($pattern, $value)) {
+                return $date;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @author Walter Discher Cechinel <mistrim@gmail.com>
+     *
+     * @param string $format
+     * @param string $value
+     *
+     * @return boolean
+     */
+    protected function convertFromFormat($format, $value)
+    {
+        try {
+            return Carbon::createFromFormat($format, $value);
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * @author Walter Discher Cechinel <mistrim@gmail.com>
+     *
+     * @param Event $event
+     *
+     * @return array
+     */
+    protected function prepareAttributes($event)
+    {
+        $attributes = [];
+        if ($this->importSchemaAttributes) {
+            $attributes = $this->attributesFromSchema();
+        }
+
+        foreach ($this->attributes as $attribute => $type) {
+            $attributes[$attribute] = $type;
         }
 
         return $attributes;
@@ -233,45 +310,60 @@ class CarbonBehavior extends \yii\base\Behavior
     /**
      * @author Walter Discher Cechinel <mistrim@gmail.com>
      *
-     * @param string $value field value
-     * @param string $type  date type
+     * @param array $columns
      *
-     * @return Carbon
+     * @return array
      */
-    protected function convert($value, $columnType)
+    private function attributesFromSchema()
     {
-        foreach ($this->dateFormatPatterns as $pattern => $type) {
-            try {
-                $dateCarbon = Carbon::createFromFormat($pattern, $value);
-                if ($type == 'date') {
-                    $dateCarbon->startOfDay();
-                }
+        $schema = $this->owner->getTableSchema();
+        $columns = $schema->columns;
 
-                return $dateCarbon;
-            } catch (\InvalidArgumentException $e) {
-                continue;
-            } catch (\Exception $e) {
+        $attributes = [];
+
+        /* @var $columnData ColumnSchema */
+        foreach ($columns as $name => $columnData) {
+            $columnType = $columnData->type;
+
+            if (in_array($columnType, $this->dateTypes)) {
+                $attributes[$name] = $columnType;
                 continue;
             }
         }
 
-        return null;
+        return $attributes;
     }
 
     /**
      * @author Walter Discher Cechinel <mistrim@gmail.com>
      *
-     * @param string $name
-     *
-     * @return \yii\db\ColumnSchema|boolean
+     * @param Carbon $date
+     * @param string $type
      */
-    protected function getColumn($name)
+    protected function applyToDatabaseFormat(Carbon $date, $type)
     {
-        if (!isset($this->columns[$name])) {
+        $format = $this->toDatabaseStringFormats[$type] ?? null;
+        if (!$format) {
             return false;
         }
 
-        return $this->columns[$name];
+        $date->settings(['toStringFormat' => $format]);
+    }
+
+    /**
+     * @author Walter Discher Cechinel <mistrim@gmail.com>
+     *
+     * @param Carbon $date
+     * @param string $type
+     */
+    protected function applyToStringFormat(Carbon $date, $type)
+    {
+        $format = $this->toStringFormats[$type] ?? null;
+        if (!$format) {
+            return false;
+        }
+
+        $date->settings(['toStringFormat' => $format]);
     }
 
 }
