@@ -226,7 +226,7 @@ class CarbonBehavior extends \yii\base\Behavior
             } elseif ($type == 'time') {
                 $value = Carbon::createFromFormat('H:i:s', $value);
             } else {
-                $value = $this->convertFromPatterns($value, ['Y-m-d H:i', 'Y-m-d H:i:s']);
+                $value = $this->convertFromPatterns($value, ['Y-m-d H:i', 'Y-m-d H:i:s', 'Y-m-d H:i:s.u']);
             }
 
             if (!$value instanceof Carbon) {
