@@ -42,6 +42,14 @@ class CarbonBehavior extends \yii\base\Behavior
     public $importSchemaAttributes = true;
 
     /**
+     * Carbon current locale
+     *
+     * @author Walter Discher Cechinel <mistrim@gmail.com>
+     * @var string
+     */
+    public $locale = 'pt_BR';
+
+    /**
      *
      * @var array
      */
@@ -234,6 +242,8 @@ class CarbonBehavior extends \yii\base\Behavior
             }
 
             $this->applyToStringFormat($value, $type);
+            $value->locale($this->locale);
+
             $this->setAttribute($attr, $value);
         }
     }
