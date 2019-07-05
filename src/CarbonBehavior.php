@@ -145,6 +145,7 @@ class CarbonBehavior extends \yii\base\Behavior
             ActiveRecord::EVENT_AFTER_VALIDATE => 'convertTo',
             ActiveRecord::EVENT_BEFORE_INSERT => 'convertToDatabase',
             ActiveRecord::EVENT_BEFORE_UPDATE => 'convertToDatabase',
+            ActiveRecord::EVENT_BEFORE_DELETE=> 'convertToDatabase',
             ActiveRecord::EVENT_BEFORE_VALIDATE => 'convertToDatabase',
             static::EVENT_TO_OUTPUT_FORMAT => 'convertFromDatabase',
         ];
